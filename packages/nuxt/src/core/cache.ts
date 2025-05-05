@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 import { createIsIgnored } from '@nuxt/kit'
 import type { Nuxt, NuxtConfig, NuxtConfigLayer } from '@nuxt/schema'
-import { hash, murmurHash, objectHash } from 'ohash'
+import { hash, serialize } from 'ohash'
 import { glob } from 'tinyglobby'
 import { consola } from 'consola'
 import { dirname, join, relative } from 'pathe'
@@ -38,7 +38,7 @@ export async function getVueHash (nuxt: Nuxt) {
     },
   })
 
-  const cacheFile = join(nuxt.options.workspaceDir, 'node_modules/.cache/nuxt/builds', id, hash + '.tar')
+  const cacheFile = join(getCacheDir(nuxt), id, hash + '.tar')
 
   return {
     hash,
@@ -63,7 +63,7 @@ export async function getVueHash (nuxt: Nuxt) {
 export async function cleanupCaches (nuxt: Nuxt) {
   const start = Date.now()
   const caches = await glob(['*/*.tar'], {
-    cwd: join(nuxt.options.workspaceDir, 'node_modules/.cache/nuxt/builds'),
+    cwd: getCacheDir(nuxt),
     absolute: true,
   })
   if (caches.length >= 10) {
@@ -107,7 +107,7 @@ async function getHashes (nuxt: Nuxt, options: GetHashOptions): Promise<Hashes> 
     const layerName = `layer#${layerCtr++}`
     hashSources.push({
       name: `${layerName}:config`,
-      data: objectHash({
+      data: serialize({
         ...layer.config,
         ...options.configOverrides || {},
       }),
@@ -115,8 +115,8 @@ async function getHashes (nuxt: Nuxt, options: GetHashOptions): Promise<Hashes> 
 
     const normalizeFiles = (files: Awaited<ReturnType<typeof readFilesRecursive>>) => files.map(f => ({
       name: f.name,
-      size: (f.attrs as any)?.size,
-      data: murmurHash(f.data as any /* ArrayBuffer */),
+      size: f.attrs?.size,
+      data: hash(f.data),
     }))
 
     const isIgnored = createIsIgnored(nuxt)
@@ -273,4 +273,17 @@ async function writeCache (cwd: string, sources: string | string[], cacheFile: s
   const tarData = createTar(fileEntries)
   await mkdir(dirname(cacheFile), { recursive: true })
   await writeFile(cacheFile, tarData)
+}
+
+function getCacheDir (nuxt: Nuxt) {
+  let cacheDir = join(nuxt.options.workspaceDir, 'node_modules')
+  if (!existsSync(cacheDir)) {
+    for (const dir of [...nuxt.options.modulesDir].sort((a, b) => a.length - b.length)) {
+      if (existsSync(dir)) {
+        cacheDir = dir
+        break
+      }
+    }
+  }
+  return join(cacheDir, '.cache/nuxt/builds')
 }

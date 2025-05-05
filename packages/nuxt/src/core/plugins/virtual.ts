@@ -11,7 +11,7 @@ interface VirtualFSPluginOptions {
 }
 
 const RELATIVE_ID_RE = /^\.{1,2}[\\/]/
-export const VirtualFSPlugin = (nuxt: Nuxt, options: VirtualFSPluginOptions) => createUnplugin(() => {
+export const VirtualFSPlugin = (nuxt: Nuxt, options: VirtualFSPluginOptions) => createUnplugin((_, meta) => {
   const extensions = ['', ...nuxt.options.extensions]
   const alias = { ...nuxt.options.alias, ...options.alias }
 
@@ -26,28 +26,47 @@ export const VirtualFSPlugin = (nuxt: Nuxt, options: VirtualFSPluginOptions) => 
     }
   }
 
+  function resolveId (id: string, importer?: string) {
+    id = resolveAlias(id, alias)
+
+    if (process.platform === 'win32' && isAbsolute(id)) {
+      // Add back C: prefix on Windows
+      id = resolve(id)
+    }
+
+    const resolvedId = resolveWithExt(id)
+    if (resolvedId) {
+      return PREFIX + encodeURIComponent(resolvedId)
+    }
+
+    if (importer && RELATIVE_ID_RE.test(id)) {
+      const path = resolve(dirname(withoutPrefix(decodeURIComponent(importer))), id)
+      // resolve relative paths to virtual files
+      const resolved = resolveWithExt(path)
+      if (resolved) {
+        return PREFIX + encodeURIComponent(resolved)
+      }
+    }
+  }
+
   return {
     name: 'nuxt:virtual',
-    resolveId (id, importer) {
-      id = resolveAlias(id, alias)
 
-      if (process.platform === 'win32' && isAbsolute(id)) {
-        // Add back C: prefix on Windows
-        id = resolve(id)
-      }
+    resolveId: meta.framework === 'vite' ? undefined : { order: 'pre', handler: resolveId },
 
-      const resolvedId = resolveWithExt(id)
-      if (resolvedId) {
-        return PREFIX + encodeURIComponent(resolvedId)
-      }
-
-      if (importer && RELATIVE_ID_RE.test(id)) {
-        const path = resolve(dirname(withoutPrefix(decodeURIComponent(importer))), id)
-        const resolved = resolveWithExt(path)
-        if (resolved) {
-          return PREFIX + encodeURIComponent(resolved)
-        }
-      }
+    vite: {
+      resolveId: {
+        order: 'pre',
+        handler (id, importer) {
+          const res = resolveId(id, importer)
+          if (res) {
+            return res
+          }
+          if (importer && importer.startsWith(PREFIX) && RELATIVE_ID_RE.test(id)) {
+            return this.resolve?.(id, withoutPrefix(decodeURIComponent(importer)), { skipSelf: true })
+          }
+        },
+      },
     },
 
     loadInclude (id) {

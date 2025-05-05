@@ -23,6 +23,10 @@ export default defineComponent({
       nuxtApp._isNuxtPageUsed = true
       nuxtApp._isNuxtLayoutUsed = true
     }
+    const vm = getCurrentInstance()
+    if (vm) {
+      vm._nuxtClientOnly = true
+    }
     provide(clientOnlySymbol, true)
     return () => {
       if (mounted.value) { return slots.default?.() }
@@ -59,9 +63,9 @@ export function createClientOnly<T extends ComponentOptions> (component: T) {
       }
       return elToStaticVNode(ctx._.vnode.el, STATIC_DIV)
     }
-  } else if (clone.template) {
+  } else {
     // handle runtime-compiler template
-    clone.template = `
+    clone.template &&= `
       <template v-if="mounted$">${component.template}</template>
       <template v-else>${STATIC_DIV}</template>
     `
